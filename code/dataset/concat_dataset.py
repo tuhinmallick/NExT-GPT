@@ -10,7 +10,7 @@ class MyConcatDataset(Dataset):
         _datasets = []
 
         catalog = DatasetCatalog()
-        for dataset_idx, dataset_name in enumerate(dataset_name_list):
+        for dataset_name in dataset_name_list:
             dataset_dict = getattr(catalog, dataset_name)
 
             target = dataset_dict['target']

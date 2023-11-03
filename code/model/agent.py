@@ -32,8 +32,7 @@ class DeepSpeedAgent:
     @torch.no_grad()
     def predict(self):
         self.ds_engine.module.eval()
-        output = self.ds_engine.generate(self.args)
-        return output
+        return self.ds_engine.generate(self.args)
 
     def train_model(self, batch, current_step=0, pbar=None):
         self.ds_engine.module.train()
@@ -48,8 +47,6 @@ class DeepSpeedAgent:
         #     self.writer.add_scalar('aud_mse_loss', mse_loss[2], current_step)
         if isinstance(mse_loss, torch.Tensor):
             self.writer.add_scalar('mse_loss', mse_loss, current_step)
-        else:
-            pass
         # self.writer.add_scalar('mse_loss', mse_loss, current_step)
 
         self.ds_engine.backward(loss)
@@ -128,9 +125,6 @@ class DeepSpeedAgent:
                 llama += num_params
             elif 'visual_encoder' in name:
                 imagebind += num_params
-            else:
-                pass
-
             all_param += num_params
             if param.requires_grad:
                 trainable_params += num_params
@@ -143,19 +137,20 @@ class DeepSpeedAgent:
         print(f'linear params: {linear:,d} || imagebind params: {imagebind:,d} || llama params: {llama:,d}')
 
     def load_parameters(self, path, stage=3):
-        if os.path.exists(os.path.join(path, 'pytorch_model.pt')):
-            print('loading parameters from {}'.format(self.args['save_path']))
-            delta_ckpt = torch.load(f'{path}/pytorch_model.pt', map_location=torch.device('cuda'))
-            checkpoint = OrderedDict()
-            if stage == 3:
-                for k, v in delta_ckpt.items():
-                    if 'llama_model.model.embed_tokens.weight' in k:
-                        checkpoint['llama_model.base_model.model.model.embed_tokens.weight'] = v
-                    elif 'llama_model.lm_head.weight' in k:
-                        checkpoint['llama_model.base_model.model.lm_head.weight'] = v
-                    else:
-                        checkpoint[k] = v
-            else:
-                checkpoint = delta_ckpt
-            self.model.load_state_dict(checkpoint, strict=False)
+        if not os.path.exists(os.path.join(path, 'pytorch_model.pt')):
+            return
+        print(f"loading parameters from {self.args['save_path']}")
+        delta_ckpt = torch.load(f'{path}/pytorch_model.pt', map_location=torch.device('cuda'))
+        checkpoint = OrderedDict()
+        if stage == 3:
+            for k, v in delta_ckpt.items():
+                if 'llama_model.model.embed_tokens.weight' in k:
+                    checkpoint['llama_model.base_model.model.model.embed_tokens.weight'] = v
+                elif 'llama_model.lm_head.weight' in k:
+                    checkpoint['llama_model.base_model.model.lm_head.weight'] = v
+                else:
+                    checkpoint[k] = v
+        else:
+            checkpoint = delta_ckpt
+        self.model.load_state_dict(checkpoint, strict=False)
 

@@ -34,7 +34,7 @@ class T2XTInstructionDataset(Dataset):
         return len(self.instruction_list)
 
     def __getitem__(self, i):
-        with open(os.path.join(self.embed_path, str(os.path.basename(self.mm_path_list[i])) + '.npy'), 'rb') as f:
+        with open(os.path.join(self.embed_path, f'{str(os.path.basename(self.mm_path_list[i]))}.npy'), 'rb') as f:
             caption_embs = torch.from_numpy(np.load(f, allow_pickle=True))  # (num_clip_tokens, 768)
 
         return dict(output_texts=self.instruction_list[i], caption_embs=caption_embs, dataset_types=self.dataset_type_list[i])

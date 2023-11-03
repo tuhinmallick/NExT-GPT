@@ -46,11 +46,13 @@ class RandomSampler(data.sampler.Sampler):
                              "since a random permute will be performed.")
 
         if not isinstance(self.num_samples, int) or self.num_samples <= 0:
-            raise ValueError("num_samples should be a positive integer "
-                             "value, but got num_samples={}".format(self.num_samples))
+            raise ValueError(
+                f"num_samples should be a positive integer value, but got num_samples={self.num_samples}"
+            )
         if not isinstance(self.replacement, bool):
-            raise ValueError("replacement should be a boolean value, but got "
-                             "replacement={}".format(self.replacement))
+            raise ValueError(
+                f"replacement should be a boolean value, but got replacement={self.replacement}"
+            )
 
     @property
     def num_samples(self):
@@ -96,8 +98,7 @@ class DistributedSequentialSampler(data.sampler.Sampler):
     def __iter__(self):
         for idx in range(self.start_iter, self.train_iters * 10):
             batch = [(idx + bias) % self.num_samples for bias in self.batch_bias]
-            tbatch = self._batch(batch)
-            yield tbatch
+            yield self._batch(batch)
 
     def __len__(self):
         return self.train_iters
@@ -182,7 +183,9 @@ class DistributedMultiDatasetBatchSampler(data.sampler.BatchSampler):
         self.dataset = dataset
         self.batch_size = batch_size
         self.number_of_datasets = len(dataset.datasets.datasets)
-        self.largest_dataset_size = max([_cur_dataset.__len__() for _cur_dataset in dataset.datasets.datasets])
+        self.largest_dataset_size = max(
+            _cur_dataset.__len__() for _cur_dataset in dataset.datasets.datasets
+        )
 
     def __iter__(self):
         samplers_list = []
@@ -208,14 +211,12 @@ class DistributedMultiDatasetBatchSampler(data.sampler.BatchSampler):
                 cur_batch_sampler = sampler_iterators[i]
                 try:
                     cur_sample_org = cur_batch_sampler.__next__()
-                    cur_samples = [x + push_index_val[i] for x in cur_sample_org]
-                    yield cur_samples
+                    yield [x + push_index_val[i] for x in cur_sample_org]
                 except StopIteration:
                     # got to the end of iterator - restart the iterator and continue to get samples
                     # until reaching "epoch_samples"
                     sampler_iterators[i] = samplers_list[i].__iter__()
                     cur_batch_sampler = sampler_iterators[i]
                     cur_sample_org = cur_batch_sampler.__next__()
-                    cur_samples = [x + push_index_val[i] for x in cur_sample_org]
-                    yield cur_samples
+                    yield [x + push_index_val[i] for x in cur_sample_org]
 

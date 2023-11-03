@@ -33,9 +33,7 @@ class StoppingCriteriaSub(StoppingCriteria):
                 if len(i) > 0:
                     if torch.all(input_ids[0][i:i + len(_stop)] == _stop):
                         stop_count += 1
-        if stop_count >= self.ENCOUNTERS:
-            return True
-        return False
+        return stop_count >= self.ENCOUNTERS
 
 
 class NextGPTModel(nn.Module):
@@ -54,7 +52,7 @@ class NextGPTModel(nn.Module):
                                            self.args['imagebind_version'])
         print(f'Initializing visual encoder from {imagebind_ckpt_path} ...')
         self.visual_encoder, self.visual_hidden_size = \
-            imagebind_model.imagebind_huge(pretrained=True, store_path=imagebind_ckpt_path)
+                imagebind_model.imagebind_huge(pretrained=True, store_path=imagebind_ckpt_path)
         # free vision encoder
         for name, param in self.visual_encoder.named_parameters():
             param.requires_grad = False
@@ -113,14 +111,13 @@ class NextGPTModel(nn.Module):
         self.sd_ckpt_path = self.args['image_diffusion']
         self.gen_text_hidden_fcs = nn.ModuleList([])
         for layer_idx in self.args['text_emb_to_img_layers']:
-            if layer_idx == -1 or layer_idx == self.llama_model.config.num_hidden_layers:
+            if layer_idx in [-1, self.llama_model.config.num_hidden_layers]:
                 in_dim = self.llama_model.config.hidden_size
 
                 self.gen_text_hidden_fcs.append(
                     TextFcLayer(in_dim, 768, num_input_tokens=self.args['num_gen_img_tokens'],
                                 num_output_tokens=self.args['num_clip_tokens'],
                                 mode=self.args['text_fc_to_img_mode']))
-            # self.sd_pipe.text_encoder.config.hidden_size
             elif layer_idx < self.llama_model.config.num_hidden_layers:
                 self.gen_text_hidden_fcs.append(
                     TextFcLayer(self.llama_model.config.hidden_size, 768,
@@ -135,14 +132,13 @@ class NextGPTModel(nn.Module):
         self.vd_ckpt_path = self.args['video_diffusion']
         self.gen_text_hidden_fcs_video = nn.ModuleList([])
         for layer_idx in self.args['text_emb_to_video_layers']:
-            if layer_idx == -1 or layer_idx == self.llama_model.config.num_hidden_layers:
+            if layer_idx in [-1, self.llama_model.config.num_hidden_layers]:
                 in_dim = self.llama_model.config.hidden_size  # 4096
 
                 self.gen_text_hidden_fcs_video.append(
                     TextFcLayer(in_dim, 1024, num_input_tokens=self.args['num_gen_video_tokens'],
                                 num_output_tokens=self.args['num_clip_tokens'],
                                 mode=self.args['text_fc_to_video_mode']))
-            # self.vd_pipe.text_encoder.config.hidden_size
             elif layer_idx < self.llama_model.config.num_hidden_layers:
                 self.gen_text_hidden_fcs_video.append(
                     TextFcLayer(self.llama_model.config.hidden_size, 1024,
@@ -157,7 +153,7 @@ class NextGPTModel(nn.Module):
         self.ad_ckpt_path = self.args['audio_diffusion']
         self.gen_text_hidden_fcs_audio = nn.ModuleList([])
         for layer_idx in self.args['text_emb_to_audio_layers']:
-            if layer_idx == -1 or layer_idx == self.llama_model.config.num_hidden_layers:
+            if layer_idx in [-1, self.llama_model.config.num_hidden_layers]:
                 in_dim = self.llama_model.config.hidden_size
 
                 self.gen_text_hidden_fcs_audio.append(
@@ -165,7 +161,6 @@ class NextGPTModel(nn.Module):
                                 num_input_tokens=self.args['num_gen_audio_tokens'],
                                 num_output_tokens=1,
                                 mode=self.args['text_fc_to_audio_mode']))
-            # self.ad_pipe.text_encoder.config.projection_dim
             elif layer_idx < self.llama_model.config.num_hidden_layers:
                 self.gen_text_hidden_fcs_audio.append(
                     TextFcLayer(self.llama_model.config.hidden_size, 512,
@@ -313,8 +308,6 @@ class NextGPTModel(nn.Module):
 
             atts_prefix = torch.ones([batch_size, 1 + p_before_embeds.size()[1] + 1], dtype=torch.long).to(
                 self.device)  # bsz x (1 + s1 + 1)
-            attention_mask = torch.cat([atts_prefix, attention_mask], dim=1).to(self.device)
-            assert attention_mask.size() == targets.size()  # bsz x (1 + s1 + 1 + s2)
         else:
             p_before = '### Human: '
             p_before_tokens = self.llama_tokenizer(p_before, return_tensors="pt", add_special_tokens=False).to(
@@ -339,8 +332,8 @@ class NextGPTModel(nn.Module):
 
             atts_prefix = torch.ones([batch_size, 1 + p_before_embeds.size()[1]], dtype=torch.long).to(
                 self.device)  # bsz x (1 + s1)
-            attention_mask = torch.cat([atts_prefix, attention_mask], dim=1).to(self.device)
-            assert attention_mask.size() == targets.size()  # bsz x (1 + s1 + s2)
+        attention_mask = torch.cat([atts_prefix, attention_mask], dim=1).to(self.device)
+        assert attention_mask.size() == targets.size()  # bsz x (1 + s1 + 1 + s2)
         return inputs_embeds, targets, attention_mask
 
     def _train_with_mode(self, texts, img_embeds=None, modality='text', num_gen_tokens='8',
@@ -392,47 +385,44 @@ class NextGPTModel(nn.Module):
 
         if modality == 'text':
             return loss, gen_acc, torch.zeros_like(loss)
-        else:
-            hidden_states = []
-            # text_hidden_fcs = self.gen_text_hidden_fcs
+        hidden_states = []
+        # text_hidden_fcs = self.gen_text_hidden_fcs
 
-            # based on the targets to obtain the hidden state, targets includes the [BOS] token
-            start_pos = (targets == gen_token_idx[0]).nonzero(as_tuple=False)[:, 1].tolist()
-            end_pos = (targets == gen_token_idx[-1]).nonzero(as_tuple=False)[:, 1].tolist()
-            # logging.info(f'targets : {targets}')
-            # logging.info(f'start_pos : {start_pos}')
-            # logging.info(f'end_pos : {end_pos}')
-            assert 0 < len(start_pos) == len(end_pos) == input_ids.size(0) and len(end_pos) > 0, (start_pos, end_pos)
-            for idx, fc_layer in zip(text_emb_layers, text_hidden_fcs):
-                hidden_embedding = []
-                input_embedding = []
-                for b, (s, e) in enumerate(zip(start_pos, end_pos)):
-                    assert e - s + 1 == num_gen_tokens, (s, e)
-                    hidden_embedding.append(outputs.hidden_states[idx][b, s:e + 1, :])
-                    input_embedding.append(self.input_embeddings(targets[b, s:e + 1]))
-                hidden_embedding = torch.stack(hidden_embedding, dim=0)
-                input_embedding = torch.stack(input_embedding, dim=0)
-                hidden_states.append(fc_layer(hidden_embedding, input_embedding))  # (N, seq_len, 2048)
-            embeddings = torch.stack(hidden_states, dim=-1).sum(dim=-1)  # (N, 77, 768)
+        # based on the targets to obtain the hidden state, targets includes the [BOS] token
+        start_pos = (targets == gen_token_idx[0]).nonzero(as_tuple=False)[:, 1].tolist()
+        end_pos = (targets == gen_token_idx[-1]).nonzero(as_tuple=False)[:, 1].tolist()
+        # logging.info(f'targets : {targets}')
+        # logging.info(f'start_pos : {start_pos}')
+        # logging.info(f'end_pos : {end_pos}')
+        assert 0 < len(start_pos) == len(end_pos) == input_ids.size(0) and len(end_pos) > 0, (start_pos, end_pos)
+        for idx, fc_layer in zip(text_emb_layers, text_hidden_fcs):
+            hidden_embedding = []
+            input_embedding = []
+            for b, (s, e) in enumerate(zip(start_pos, end_pos)):
+                assert e - s + 1 == num_gen_tokens, (s, e)
+                hidden_embedding.append(outputs.hidden_states[idx][b, s:e + 1, :])
+                input_embedding.append(self.input_embeddings(targets[b, s:e + 1]))
+            hidden_embedding = torch.stack(hidden_embedding, dim=0)
+            input_embedding = torch.stack(input_embedding, dim=0)
+            hidden_states.append(fc_layer(hidden_embedding, input_embedding))  # (N, seq_len, 2048)
+        embeddings = torch.stack(hidden_states, dim=-1).sum(dim=-1)  # (N, 77, 768)
             # embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)  # (N, T_I_V_A.txt, 256)
 
             # Obtain the embeddings produced by the text encoder of a frozen text-to-image generation model
-            input_text = [conversation for conversation in texts]
+        input_text = list(texts)
 
-            if modality == 'image':
-                mse_loss = l2_loss(embeddings, torch.stack(text_prompt_embeddins, dim=0).to(self.device))
-            elif modality == 'video':
-                mse_loss = l2_loss(embeddings, torch.stack(text_prompt_embeddins, dim=0).to(self.device))
-            else:
-                text_prompt_embeddins = torch.stack(text_prompt_embeddins, dim=0).to(self.device)
-                assert len(text_prompt_embeddins.shape) == 2, text_prompt_embeddins.shape
-                text_prompt_embeddins = text_prompt_embeddins.view(text_prompt_embeddins.size(0), 1,
-                                                                   text_prompt_embeddins.size(1))
-                mse_loss = l2_loss(embeddings, text_prompt_embeddins)
-            mse_loss = mse_loss.mean()
-            loss += loss_scale * mse_loss
+        if modality in ['image', 'video']:
+            mse_loss = l2_loss(embeddings, torch.stack(text_prompt_embeddins, dim=0).to(self.device))
+        else:
+            text_prompt_embeddins = torch.stack(text_prompt_embeddins, dim=0).to(self.device)
+            assert len(text_prompt_embeddins.shape) == 2, text_prompt_embeddins.shape
+            text_prompt_embeddins = text_prompt_embeddins.view(text_prompt_embeddins.size(0), 1,
+                                                               text_prompt_embeddins.size(1))
+            mse_loss = l2_loss(embeddings, text_prompt_embeddins)
+        mse_loss = mse_loss.mean()
+        loss += loss_scale * mse_loss
 
-            return loss, gen_acc, mse_loss
+        return loss, gen_acc, mse_loss
 
     def _enc_align_training_stage_1(self, inputs):
         """
@@ -591,8 +581,7 @@ class NextGPTModel(nn.Module):
             video_embeds, _ = self.encode_video(inputs['video_paths'])
             features.append(video_embeds)
 
-        feature_embeds = torch.cat(features).sum(dim=0).unsqueeze(0)
-        return feature_embeds
+        return torch.cat(features).sum(dim=0).unsqueeze(0)
 
     def _prepare_image_embed(self, text, batch_size):
         pattern = r'Image>(.*?)<\/Image'
@@ -698,10 +687,8 @@ class NextGPTModel(nn.Module):
                     text_embeds = self.llama_model.model.model.embed_tokens(text_tokens.input_ids).expand(batch_size,
                                                                                                           -1, -1)
                     bos_embeds = self.llama_model.model.model.embed_tokens(bos)  # bsz x 1 x embed_dim
-                input_embeds.append(bos_embeds)
-                input_embeds.append(text_embeds)
-        inputs_embeds = torch.cat(input_embeds, dim=1)  # bsz x (1+s2) x embed_dim
-        return inputs_embeds
+                input_embeds.extend((bos_embeds, text_embeds))
+        return torch.cat(input_embeds, dim=1)
 
     def generate_tokens_embeddings(self, inputs, input_embeds, temperature: float = 0.0, top_p: float = 1.0):
         """
@@ -735,12 +722,17 @@ class NextGPTModel(nn.Module):
         audio_output_embedding = []
         out = outputs.sequences
         for _hidden_states in outputs.hidden_states[1:]:
-            for idx in self.args['text_emb_to_img_layers']:
-                output_embeddings.append(_hidden_states[idx])
-            for idx in self.args['text_emb_to_video_layers']:
-                video_output_embedding.append(_hidden_states[idx])
-            for idx in self.args['text_emb_to_audio_layers']:
-                audio_output_embedding.append(_hidden_states[idx])
+            output_embeddings.extend(
+                _hidden_states[idx] for idx in self.args['text_emb_to_img_layers']
+            )
+            video_output_embedding.extend(
+                _hidden_states[idx]
+                for idx in self.args['text_emb_to_video_layers']
+            )
+            audio_output_embedding.extend(
+                _hidden_states[idx]
+                for idx in self.args['text_emb_to_audio_layers']
+            )
         output_embeddings = torch.cat(output_embeddings, dim=1)
         video_output_embedding = torch.cat(video_output_embedding, dim=1)
         audio_output_embedding = torch.cat(audio_output_embedding, dim=1)
@@ -786,12 +778,10 @@ class NextGPTModel(nn.Module):
                                              num_inference_steps=num_inference_steps).images
 
             caption = \
-                self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
+                    self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
                     0]
             last_ret_idx = gen_idx + 1
-            return_outputs.append(caption + f' {gen_prefix}')
-            # return_outputs.append(truncate_caption(caption) + f' {gen_prefix}')
-            return_outputs.append(image_outputs)
+            return_outputs.extend((f'{caption} {gen_prefix}', image_outputs))
         return return_outputs
 
     def generate_videos(self, generated_ids, embeddings, all_gen_idx, generation_model=None,
@@ -809,7 +799,7 @@ class NextGPTModel(nn.Module):
         for gen_idx in all_gen_idx:
             assert generated_ids[0,
                    gen_idx:gen_idx + self.args['num_gen_video_tokens']].cpu().detach().numpy().tolist() == \
-                   self.args[
+                       self.args[
                        'gen_video_token_idx'], (
                 generated_ids[0, gen_idx:gen_idx + self.args['num_gen_video_tokens']],
                 self.args['gen_video_token_idx'])
@@ -840,12 +830,10 @@ class NextGPTModel(nn.Module):
                                              num_inference_steps=num_inference_steps, height=height,
                                              width=width, num_frames=num_frames).frames
             caption = \
-                self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
+                    self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
                     0]
             last_ret_idx = gen_idx + 1
-            return_outputs.append(caption + f' {gen_prefix}')
-            # return_outputs.append(truncate_caption(caption) + f' {gen_prefix}')
-            return_outputs.append(video_outputs)
+            return_outputs.extend((f'{caption} {gen_prefix}', video_outputs))
         return return_outputs
 
     def generate_audios(self, generated_ids, embeddings, all_gen_idx, generation_model=None,
@@ -862,7 +850,7 @@ class NextGPTModel(nn.Module):
         for gen_idx in all_gen_idx:
             assert generated_ids[0,
                    gen_idx:gen_idx + self.args['num_gen_audio_tokens']].cpu().detach().numpy().tolist() == \
-                   self.args[
+                       self.args[
                        'gen_audio_token_idx'], (
                 generated_ids[0, gen_idx:gen_idx + self.args['num_gen_audio_tokens']],
                 self.args['gen_audio_token_idx'])
@@ -887,12 +875,10 @@ class NextGPTModel(nn.Module):
                                              num_inference_steps=num_inference_steps,
                                              audio_length_in_s=audio_length_in_s).audios[0]
             caption = \
-                self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
+                    self.llama_tokenizer.batch_decode(generated_ids[:, last_ret_idx:gen_idx], skip_special_tokens=True)[
                     0]
             last_ret_idx = gen_idx + 1
-            return_outputs.append(caption + f' {gen_prefix}')
-            # return_outputs.append(truncate_caption(caption) + f' {gen_prefix}')
-            return_outputs.append(audio_outputs)
+            return_outputs.extend((f'{caption} {gen_prefix}', audio_outputs))
         return return_outputs
 
     def generate(self, inputs):
