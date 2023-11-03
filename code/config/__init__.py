@@ -29,12 +29,11 @@ def load_config(args):
 
     # update and append the stage config for base config
     base_configuration.update(stage_configuration)
-    configuration = base_configuration
-    return configuration
+    return base_configuration
 
 
 def load_base_config():
-    config_path = f'config/base.yaml'
+    config_path = 'config/base.yaml'
     with open(config_path) as f:
         configuration = yaml.load(f, Loader=yaml.FullLoader)
     print(f'[!] load base configuration: {config_path}')

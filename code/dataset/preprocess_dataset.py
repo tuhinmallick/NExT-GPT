@@ -36,7 +36,7 @@ def load_alpaca(data_path, sample_data=False, sample_numer=1000, save_dir=''):
     """
     with open(data_path, 'r') as f:
         data = json.load(f)
-    print('the total instance is {}'.format(len(data)))
+    print(f'the total instance is {len(data)}')
     if sample_data and sample_numer > 0:
         data = random.sample(data, sample_numer)
     res = []
@@ -44,19 +44,20 @@ def load_alpaca(data_path, sample_data=False, sample_numer=1000, save_dir=''):
         _temp = dict()
         _temp['image_name'] = '00000000000'
         _temp['output_modality'] = 'text'
-        conversation = []
+        conversation = [
+            {
+                'from': 'human',
+                'value': d['instruction'] + d['input'],
+                'input_modality': 'text',
+            },
+            {
+                'from': 'gpt',
+                'value': d['output'],
+                'caption': '',
+                'output_modality': 'text',
+            },
+        ]
 
-        conversation.append(
-            {'from': 'human',
-             'value': d['instruction'] + d['input'],
-             'input_modality': 'text'}
-        )
-        conversation.append(
-            {'from': 'gpt',
-             'value': d['output'],
-             'caption': '',
-             'output_modality': 'text'}
-        )
         _temp['conversation'] = conversation
         res.append(_temp)
     if not os.path.exists(save_dir):
@@ -93,7 +94,7 @@ def load_llava(data_path, sample_data=False, sample_numer=1000, save_dir=''):
     """
     with open(data_path, 'r') as f:
         data = json.load(f)
-    print('the total instance is {}'.format(len(data)))
+    print(f'the total instance is {len(data)}')
     if sample_data and sample_numer > 0:
         res = random.sample(data, sample_numer)
     else:

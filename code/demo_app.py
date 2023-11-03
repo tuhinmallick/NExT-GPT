@@ -25,10 +25,13 @@ args = parser.parse_args()
 args = vars(args)
 args.update(load_config(args))
 model = NextGPTModel(**args)
-delta_ckpt = torch.load(os.path.join(args['nextgpt_ckpt_path'], f'pytorch_model.pt'), map_location=torch.device('cpu'))
+delta_ckpt = torch.load(
+    os.path.join(args['nextgpt_ckpt_path'], 'pytorch_model.pt'),
+    map_location=torch.device('cpu'),
+)
 model.load_state_dict(delta_ckpt, strict=False)
 model = model.eval().half().cuda()
-print(f'[!] init the 7b model over ...')
+print('[!] init the 7b model over ...')
 
 g_cuda = torch.Generator(device='cuda').manual_seed(13)
 
@@ -75,26 +78,26 @@ def parse_text(text, image_path, video_path, audio_path):
         if "```" in line:
             count += 1
             items = line.split('`')
+            lines[i] = (
+                f'<pre><code class="language-{items[-1]}">'
+                if count % 2 == 1
+                else '<br></code></pre>'
+            )
+        elif i > 0:
             if count % 2 == 1:
-                lines[i] = f'<pre><code class="language-{items[-1]}">'
-            else:
-                lines[i] = f'<br></code></pre>'
-        else:
-            if i > 0:
-                if count % 2 == 1:
-                    line = line.replace("`", "\`")
-                    line = line.replace("<", "&lt;")
-                    line = line.replace(">", "&gt;")
-                    line = line.replace(" ", "&nbsp;")
-                    line = line.replace("*", "&ast;")
-                    line = line.replace("_", "&lowbar;")
-                    line = line.replace("-", "&#45;")
-                    line = line.replace(".", "&#46;")
-                    line = line.replace("!", "&#33;")
-                    line = line.replace("(", "&#40;")
-                    line = line.replace(")", "&#41;")
-                    line = line.replace("$", "&#36;")
-                lines[i] = "<br>" + line
+                line = line.replace("`", "\`")
+                line = line.replace("<", "&lt;")
+                line = line.replace(">", "&gt;")
+                line = line.replace(" ", "&nbsp;")
+                line = line.replace("*", "&ast;")
+                line = line.replace("_", "&lowbar;")
+                line = line.replace("-", "&#45;")
+                line = line.replace(".", "&#46;")
+                line = line.replace("!", "&#33;")
+                line = line.replace("(", "&#40;")
+                line = line.replace(")", "&#41;")
+                line = line.replace("$", "&#36;")
+            lines[i] = f"<br>{line}"
     text = "".join(lines) + "<br>"
     res_text = ''
     split_text = re.split(r' <|> ', text)
@@ -103,42 +106,39 @@ def parse_text(text, image_path, video_path, audio_path):
         if st.startswith('<Image>'):
             pattern = r'Image>(.*?)<\/Image'
             matches = re.findall(pattern, text)
-            for m in matches:
-                image_path_list.append(m)
+            image_path_list.extend(iter(matches))
         elif st.startswith('<Audio>'):
             pattern = r'Audio>(.*?)<\/Audio'
             matches = re.findall(pattern, text)
-            for m in matches:
-                audio_path_list.append(m)
+            audio_path_list.extend(iter(matches))
         elif st.startswith('<Video>'):
             pattern = r'Video>(.*?)<\/Video'
             matches = re.findall(pattern, text)
-            for m in matches:
-                video_path_list.append(m)
+            video_path_list.extend(iter(matches))
         else:
             res_text += st
     text = res_text
     if image_path is not None:
         text += f'<img src="./file={image_path}" style="display: inline-block;width: 250px;max-height: 400px;"><br>'
-        outputs = f'<Image>{image_path}</Image> ' + outputs
-    if len(image_path_list) > 0:
+        outputs = f'<Image>{image_path}</Image> {outputs}'
+    if image_path_list:
         for i in image_path_list:
             text += f'<img src="./file={i}" style="display: inline-block;width: 250px;max-height: 400px;"><br>'
-            outputs = f'<Image>{i}</Image> ' + outputs
+            outputs = f'<Image>{i}</Image> {outputs}'
     if video_path is not None:
         text += f' <video controls playsinline width="500" style="display: inline-block;"  src="./file={video_path}"></video><br>'
-        outputs = f'<Video>{video_path}</Video> ' + outputs
-    if len(video_path_list) > 0:
+        outputs = f'<Video>{video_path}</Video> {outputs}'
+    if video_path_list:
         for i in video_path_list:
             text += f' <video controls playsinline width="500" style="display: inline-block;"  src="./file={i}"></video><br>'
-            outputs = f'<Video>{i}</Video> ' + outputs
+            outputs = f'<Video>{i}</Video> {outputs}'
     if audio_path is not None:
         text += f'<audio controls playsinline><source src="./file={audio_path}" type="audio/wav"></audio><br>'
-        outputs = f'<Audio>{audio_path}</Audio> ' + outputs
-    if len(audio_path_list) > 0:
+        outputs = f'<Audio>{audio_path}</Audio> {outputs}'
+    if audio_path_list:
         for i in audio_path_list:
             text += f'<audio controls playsinline><source src="./file={i}" type="audio/wav"></audio><br>'
-            outputs = f'<Audio>{i}</Audio> ' + outputs
+            outputs = f'<Audio>{i}</Audio> {outputs}'
     # text = text[::-1].replace(">rb<", "", 1)[::-1]
     text = text[:-len("<br>")].rstrip() if text.endswith("<br>") else text
     return text, outputs
@@ -148,7 +148,7 @@ def save_image_to_local(image: Image.Image):
     # TODO: Update so the url path is used, to prevent repeat saving.
     if not os.path.exists('temp'):
         os.mkdir('temp')
-    filename = os.path.join('temp', next(tempfile._get_candidate_names()) + '.jpg')
+    filename = os.path.join('temp', f'{next(tempfile._get_candidate_names())}.jpg')
     image.save(filename)
     return filename
 
@@ -156,7 +156,7 @@ def save_image_to_local(image: Image.Image):
 def save_video_to_local(video):
     if not os.path.exists('temp'):
         os.mkdir('temp')
-    filename = os.path.join('temp', next(tempfile._get_candidate_names()) + '.mp4')
+    filename = os.path.join('temp', f'{next(tempfile._get_candidate_names())}.mp4')
     writer = imageio.get_writer(filename, format='FFMPEG', fps=8)
     for frame in video:
         writer.append_data(frame)
@@ -167,7 +167,7 @@ def save_video_to_local(video):
 def save_audio_to_local(audio):
     if not os.path.exists('temp'):
         os.mkdir('temp')
-    filename = os.path.join('temp', next(tempfile._get_candidate_names()) + '.wav')
+    filename = os.path.join('temp', f'{next(tempfile._get_candidate_names())}.wav')
     scipy.io.wavfile.write(filename, rate=16000, data=audio)
     return filename
 
@@ -175,7 +175,7 @@ def save_audio_to_local(audio):
 def parse_reponse(model_outputs):
     response = ''
     text_outputs = []
-    for output_i, p in enumerate(model_outputs):
+    for p in model_outputs:
         if isinstance(p, str):
             response += p
             response += '<br>'
@@ -190,12 +190,12 @@ def parse_reponse(model_outputs):
                 else:
                     filename = save_image_to_local(m[0])
                     print(filename)
-                    _temp_output = f'<Image>{filename}</Image> ' + _temp_output
+                    _temp_output = f'<Image>{filename}</Image> {_temp_output}'
                     response += f'<img src="./file={filename}" style="display: inline-block;width: 250px;max-height: 400px;">'
             text_outputs.append(_temp_output)
         elif 'vid' in p.keys():
             _temp_output = ''
-            for idx, m in enumerate(p['vid']):
+            for m in p['vid']:
                 if isinstance(m, str):
                     response += m.replace(' '.join([f'[VID{i}]' for i in range(args['num_gen_video_tokens'])]), '')
                     response += '<br>'
@@ -203,12 +203,12 @@ def parse_reponse(model_outputs):
                 else:
                     filename = save_video_to_local(m)
                     print(filename)
-                    _temp_output = f'<Video>{filename}</Video> ' + _temp_output
+                    _temp_output = f'<Video>{filename}</Video> {_temp_output}'
                     response += f'<video controls playsinline width="500" style="display: inline-block;"  src="./file={filename}"></video>'
             text_outputs.append(_temp_output)
         elif 'aud' in p.keys():
             _temp_output = ''
-            for idx, m in enumerate(p['aud']):
+            for m in p['aud']:
                 if isinstance(m, str):
                     response += m.replace(' '.join([f'[AUD{i}]' for i in range(args['num_gen_audio_tokens'])]), '')
                     response += '<br>'
@@ -216,11 +216,9 @@ def parse_reponse(model_outputs):
                 else:
                     filename = save_audio_to_local(m)
                     print(filename)
-                    _temp_output = f'<Audio>{filename}</Audio> ' + _temp_output
+                    _temp_output = f'<Audio>{filename}</Audio> {_temp_output}'
                     response += f'<audio controls playsinline><source src="./file={filename}" type="audio/wav"></audio>'
             text_outputs.append(_temp_output)
-        else:
-            pass
     response = response[:-len("<br>")].rstrip() if response.endswith("<br>") else response
     return response, text_outputs
 
@@ -280,13 +278,6 @@ def predict(
 
     if len(history) == 0:
         prompt_text += '### Human: '
-        if image_path is not None:
-            prompt_text += f'<Image>{image_path}</Image> '
-        if audio_path is not None:
-            prompt_text += f'<Audio>{audio_path}</Audio> '
-        if video_path is not None:
-            prompt_text += f'<Video>{video_path}</Video> '
-        prompt_text += f' {prompt_input}'
     else:
         for idx, (q, a) in enumerate(history):
             if idx == 0:
@@ -294,13 +285,13 @@ def predict(
             else:
                 prompt_text += f' Human: {q}\n### Assistant: {a}\n###'
         prompt_text += ' Human: '
-        if image_path is not None:
-            prompt_text += f'<Image>{image_path}</Image> '
-        if audio_path is not None:
-            prompt_text += f'<Audio>{audio_path}</Audio> '
-        if video_path is not None:
-            prompt_text += f'<Video>{video_path}</Video> '
-        prompt_text += f' {prompt_input}'
+    if image_path is not None:
+        prompt_text += f'<Image>{image_path}</Image> '
+    if audio_path is not None:
+        prompt_text += f'<Audio>{audio_path}</Audio> '
+    if video_path is not None:
+        prompt_text += f'<Video>{video_path}</Video> '
+    prompt_text += f' {prompt_input}'
     print('prompt_text: ', prompt_text)
     print('image_path: ', image_path)
     print('audio_path: ', audio_path)

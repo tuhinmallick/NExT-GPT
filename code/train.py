@@ -50,9 +50,7 @@ def config_env(args):
 
 
 def build_directory(path):
-    if os.path.exists(path):
-        pass
-    else:  # recursively construct directory
+    if not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
 
 
@@ -75,7 +73,9 @@ def main(**args):
         )
     train_data, train_iter, sampler = load_dataset(args, args['dataset_name_list'])
 
-    train_num = max([_cur_dataset.__len__() for _cur_dataset in train_data.datasets.datasets]) * len(train_data.datasets.datasets)
+    train_num = max(
+        _cur_dataset.__len__() for _cur_dataset in train_data.datasets.datasets
+    ) * len(train_data.datasets.datasets)
     length = args['epochs'] * train_num // args['world_size'] // dschf.config[
         'train_micro_batch_size_per_gpu']
     total_steps = args['epochs'] * train_num // dschf.config['train_batch_size']
@@ -86,7 +86,7 @@ def main(**args):
     # begin to train
     pbar = tqdm(total=length)  # maximum total number
     current_step = 0
-    for epoch_i in tqdm(range(args['epochs'])):
+    for _ in tqdm(range(args['epochs'])):
         # for train_iter in train_iter_list:
         for batch in train_iter:
             agent.train_model(
